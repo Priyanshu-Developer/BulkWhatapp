@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">My Application</string>
+    <string name="accessibility_description">This service automates sending WhatsApp messages using contact numbers and messages from a CSV file.\n        It helps users avoid manually typing or sending the same message to many contacts.</string>
+</resources>
