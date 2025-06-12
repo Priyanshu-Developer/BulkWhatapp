@@ -2,4 +2,21 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <!-- WhatsApp Colors -->
+    <color name="whatsapp_green">#25D366</color>
+    <color name="whatsapp_green_dark">#128C7E</color>
+
+    <!-- Background Colors -->
+    <color name="background_light">#F5F5F5</color>
+    <color name="background_white">#FFFFFF</color>
+
+    <!-- Text Colors -->
+    <color name="text_primary">#333333</color>
+    <color name="text_secondary">#666666</color>
+    <color name="text_hint">#999999</color>
+
+    <!-- UI Colors -->
+    <color name="divider_color">#E0E0E0</color>
+    <color name="input_border">#E0E0E0</color>
+    <color name="input_focus">#25D366</color>
 </resources>

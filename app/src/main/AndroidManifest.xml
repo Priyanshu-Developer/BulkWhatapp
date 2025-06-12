@@ -16,6 +16,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication"
         tools:targetApi="31">
+
         <activity
             android:name=".SplashScreen"
             android:exported="true">
@@ -24,8 +25,7 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
-        <!-- Make LoginActivity the launcher activity -->
+        </activity> <!-- Make LoginActivity the launcher activity -->
         <activity
             android:name=".LoginActivity"
             android:exported="true">

@@ -1,13 +1,13 @@
 package com.example.whatappbulksender
 
 import android.content.Intent
+
 import android.os.Bundle
 import android.util.Log
+
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.button.MaterialButton
 import com.google.firebase.firestore.FirebaseFirestore
@@ -28,15 +28,12 @@ class LoginActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_login)
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
-        }
+
+
         db = FirebaseFirestore.getInstance()
         emailInput = findViewById(R.id.emailInput)
         passcodeInput = findViewById(R.id.passcodeInput)
-        loginButton = findViewById(R.id.loginButton)
+        loginButton = findViewById(R.id.btnLogin)
 
         // Set click listener for login button
         loginButton.setOnClickListener {
@@ -57,7 +54,6 @@ class LoginActivity : AppCompatActivity() {
                 .whereEqualTo("passcode", passcode)
                 .get()
                 .addOnSuccessListener { documents: QuerySnapshot ->
-                    Log.d("MyApp", "onCreate: "+documents)
                     if (documents.isEmpty) {
                         Toast.makeText(this, "Invalid credentials", Toast.LENGTH_SHORT).show()
                         return@addOnSuccessListener
