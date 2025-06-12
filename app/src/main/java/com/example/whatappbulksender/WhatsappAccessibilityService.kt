@@ -1,10 +1,7 @@
 package com.example.whatappbulksender
 
 import android.accessibilityservice.AccessibilityService
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
+import android.content.*
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -12,73 +9,131 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.annotation.RequiresApi
-import java.io.BufferedReader
-import java.io.InputStreamReader
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
 import java.net.URLEncoder
 import java.util.*
 
 class WhatsAppAccessibilityService : AccessibilityService() {
 
-    private val pendingMessages: Queue<Pair<String, String>> = LinkedList()
+    private val pendingMessages: Queue<Triple<String, String, String>> = LinkedList()
     private var isSending = false
     private var handler: Handler = Handler()
+
+    private val db = FirebaseFirestore.getInstance()
+    private var lastVisible: DocumentSnapshot? = null
+    private val batchSize = 100
+    private var sharedPref: SharedPreferences? = null
+    private var lastSentId: String? = null
+    private var isFetching = false
 
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onServiceConnected() {
         Log.d("WAService", "Accessibility Service connected")
+        sharedPref = getSharedPreferences("UserPrefs", Context.MODE_PRIVATE)
+        lastSentId = sharedPref?.getString("last_sent_id", null)
+
         registerReceiver()
+        fetchNextBatch()
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
     private fun registerReceiver() {
-        val filter = IntentFilter("com.example.whatappbulksender.SEND_CSV")
-        registerReceiver(csvReceiver, filter, Context.RECEIVER_EXPORTED)
+        val filter = IntentFilter("com.example.whatappbulksender.SEND_MESSAGE")
+        registerReceiver(broadcastReceiver, filter, RECEIVER_EXPORTED)
     }
 
-
-    private val csvReceiver = object : BroadcastReceiver() {
+    private val broadcastReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            val uriString = intent.getStringExtra("CSV_URI")
-            uriString?.let {
-                val uri = Uri.parse(it)
-                processCsv(uri)
-            }
+            fetchNextBatch()
         }
     }
 
-    fun processCsv(uri: Uri) {
-        val inputStream = contentResolver.openInputStream(uri)
-        val reader = BufferedReader(InputStreamReader(inputStream))
-        pendingMessages.clear()
+    private fun fetchNextBatch() {
+        if (isFetching) return
+        isFetching = true
 
-        reader.forEachLine { line ->
-            val parts = line.split(",")
-            if (parts.size >= 2) {
-                val phone = parts[0].trim()
-                val message = parts[1].trim()
-                pendingMessages.add(Pair(phone, message))
-            }
+        // 🔽 Get today's date and set bounds for 9 PM to 10 PM
+        val calendarStart = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 21) // 9 PM
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
         }
 
-        Log.d("WAService", "Queued ${pendingMessages.size} messages")
-        sendNext()
+        val calendarEnd = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 22) // 10 PM
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+
+        val startTimestamp = com.google.firebase.Timestamp(calendarStart.time)
+        val endTimestamp = com.google.firebase.Timestamp(calendarEnd.time)
+
+        var query = db.collection("whatsapp")
+            .whereGreaterThanOrEqualTo("timestamp", startTimestamp)
+            .whereLessThan("timestamp", endTimestamp)
+            .orderBy("timestamp")
+            .limit(batchSize.toLong())
+
+        lastVisible?.let {
+            query = query.startAfter(it)
+        }
+
+        query.get().addOnSuccessListener { snapshot ->
+            if (!snapshot.isEmpty) {
+                lastVisible = snapshot.documents.last()
+
+                for (doc in snapshot.documents) {
+                    val id = doc.id
+                    val number = doc.getString("number") ?: continue
+                    val message = doc.getString("message") ?: continue
+                    val status = doc.getString("status")
+
+                    if (status == "sent") continue
+                    if (id == lastSentId) continue
+
+                    pendingMessages.add(Triple(id, number, message))
+                }
+
+                if (!isSending) {
+                    sendNext()
+                }
+            } else {
+                Log.d("WAService", "No messages in the 9–10 PM time window")
+            }
+            isFetching = false
+        }.addOnFailureListener {
+            Log.e("WAService", "Failed to fetch: ${it.message}")
+            isFetching = false
+        }
     }
+
 
     private fun sendNext() {
-        if (pendingMessages.isNotEmpty()) {
-            val (phone, message) = pendingMessages.peek()
+        if (pendingMessages.isEmpty()) {
+            fetchNextBatch()
+            return
+        }
+
+        val (id, phone, message) = pendingMessages.peek()
+
+        try {
             val url = "https://wa.me/$phone?text=${URLEncoder.encode(message, "UTF-8")}"
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 data = Uri.parse(url)
                 setPackage("com.whatsapp")
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            Log.d("WAService", "Opening chat for $phone")
+            Log.d("WAService", "Opening WhatsApp chat for $phone")
             startActivity(intent)
             isSending = true
-        } else {
-            Log.d("WAService", "All messages sent")
-            isSending = false
+        } catch (e: Exception) {
+            logFailureToFirestore(id, phone, message, e.message ?: "Unknown error")
+            pendingMessages.poll()
+            handler.postDelayed({ sendNext() }, 3000)
         }
     }
 
@@ -90,23 +145,58 @@ class WhatsAppAccessibilityService : AccessibilityService() {
             val sent = clickSendButton(rootNode)
 
             if (sent) {
-                pendingMessages.poll() // Remove current message
+                val (id, phone, message) = pendingMessages.poll()
+
+                // ✅ Update Firestore with sent status
+                db.collection("whatsapp").document(id)
+                    .update(
+                        mapOf(
+                            "status" to "sent",
+                            "sent_at" to FieldValue.serverTimestamp()
+                        )
+                    )
+                    .addOnSuccessListener {
+                        Log.d("WAService", "Marked $phone as sent")
+                    }
+                    .addOnFailureListener {
+                        Log.e("WAService", "Failed to mark $phone as sent: ${it.message}")
+                    }
+
+                // ✅ Save progress
+                sharedPref?.edit()?.putString("last_sent_id", id)?.apply()
                 handler.postDelayed({ sendNext() }, 3000)
             }
         }
     }
 
-    override fun onInterrupt() {}
-
     private fun clickSendButton(node: AccessibilityNodeInfo): Boolean {
         val sendButtons = node.findAccessibilityNodeInfosByViewId("com.whatsapp:id/send")
-        if (sendButtons.isNotEmpty()) {
+        return if (sendButtons.isNotEmpty()) {
             sendButtons[0].performAction(AccessibilityNodeInfo.ACTION_CLICK)
             Log.d("WAService", "Send button clicked")
-            return true
+            true
         } else {
             Log.d("WAService", "Send button not found")
-            return false
+            false
         }
     }
+
+    private fun logFailureToFirestore(id: String, phone: String, message: String, error: String) {
+        val errorUpdate = mapOf(
+            "status" to "failed",
+            "error" to error,
+            "failed_at" to FieldValue.serverTimestamp()
+        )
+
+        db.collection("whatsapp").document(id)
+            .update(errorUpdate)
+            .addOnSuccessListener {
+                Log.d("WAService", "Logged failure for $phone")
+            }
+            .addOnFailureListener {
+                Log.e("WAService", "Failed to log error for $phone: ${it.message}")
+            }
+    }
+
+    override fun onInterrupt() {}
 }

@@ -1,17 +1,18 @@
 package com.example.whatappbulksender
 
 import android.content.Intent
+import android.icu.util.Calendar
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.google.firebase.firestore.FirebaseFirestore
 
 class MainActivity : AppCompatActivity() {
-    private var filePath: Uri? = null
-    private val PICK_CSV_FILE = 1
 
+    private lateinit var db: FirebaseFirestore
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -19,34 +20,36 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnCheckPermission).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
-
-        findViewById<Button>(R.id.btnPickCSV).setOnClickListener {
-            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                type = "*/*"
-                addCategory(Intent.CATEGORY_OPENABLE)
-            }
-            startActivityForResult(intent, PICK_CSV_FILE)
-        }
+        db = FirebaseFirestore.getInstance()
 
         findViewById<Button>(R.id.btnSend).setOnClickListener {
-            filePath?.let {
-                // Send broadcast with file URI
-                val intent = Intent("com.example.whatappbulksender.SEND_CSV")
-                intent.putExtra("CSV_URI", it.toString())
-                sendBroadcast(intent)
-            } ?: run {
-                Toast.makeText(this, "Please select a CSV file first", Toast.LENGTH_SHORT).show()
+            // ⏰ Time check: Allow only between 9 PM to 10 PM
+            val calendar = Calendar.getInstance()
+            val hour = calendar.get(Calendar.HOUR_OF_DAY)
+
+            if (hour < 21 || hour >= 22) {
+                Toast.makeText(this, "Message sending is only allowed between 9 PM and 10 PM", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
             }
+
+            if (!isAccessibilityServiceEnabled()) {
+                Toast.makeText(this, "Enable accessibility service first", Toast.LENGTH_LONG).show()
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                return@setOnClickListener
+            }
+
+            // ✅ Send broadcast to start message sending
+            val intent = Intent("com.example.whatappbulksender.SEND_MESSAGE")
+            sendBroadcast(intent)
         }
+
+    }
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val service = "${packageName}/${WhatsAppAccessibilityService::class.java.canonicalName}"
+        val enabledServices =
+            Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+
+        return enabledServices != null && enabledServices.contains(service)
     }
 
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        if (requestCode == PICK_CSV_FILE && resultCode == RESULT_OK) {
-            data?.data?.let {
-                filePath = it
-                Toast.makeText(this, "CSV file selected", Toast.LENGTH_SHORT).show()
-            }
-        }
-        super.onActivityResult(requestCode, resultCode, data)
-    }
 }

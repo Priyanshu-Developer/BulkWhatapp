@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "1095195717337",
+    "firebase_url": "https://whatsapp-bulk-9e6aa-default-rtdb.firebaseio.com",
+    "project_id": "whatsapp-bulk-9e6aa",
+    "storage_bucket": "whatsapp-bulk-9e6aa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1095195717337:android:8437229f5e3f7e4bba98c8",
+        "android_client_info": {
+          "package_name": "com.example.whatappbulksender"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDzodLZiQVb28N7cFzTcQy8wUut4XP-WzY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
